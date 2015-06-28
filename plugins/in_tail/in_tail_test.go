@@ -10,40 +10,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/najeira/gigo/testutil"
 )
-
-type testLogger struct {
-	debug  bytes.Buffer
-	info   bytes.Buffer
-	notice bytes.Buffer
-	warn   bytes.Buffer
-	err    bytes.Buffer
-	crit   bytes.Buffer
-}
-
-func (l *testLogger) Debugf(format string, args ...interface{}) {
-	l.debug.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
-
-func (l *testLogger) Infof(format string, args ...interface{}) {
-	l.info.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
-
-func (l *testLogger) Noticef(format string, args ...interface{}) {
-	l.notice.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
-
-func (l *testLogger) Warnf(format string, args ...interface{}) {
-	l.warn.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
-
-func (l *testLogger) Errorf(format string, args ...interface{}) {
-	l.err.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
-
-func (l *testLogger) Criticalf(format string, args ...interface{}) {
-	l.crit.WriteString(fmt.Sprintf(format, args...) + "\n")
-}
 
 type testEmitter struct {
 	buffer bytes.Buffer
@@ -126,7 +95,7 @@ func TestScan(t *testing.T) {
 }
 
 func TestHandleErrPipe(t *testing.T) {
-	l := testLogger{}
+	l := testutil.Logger{}
 	p := New(Config{Logger: &l})
 
 	r, w := io.Pipe()
@@ -146,7 +115,7 @@ func TestHandleErrPipe(t *testing.T) {
 
 	wg.Wait()
 
-	rets := l.warn.String()
+	rets := l.Warn.String()
 	if rets != "this\nis\ntest\n" {
 		t.Errorf("invalid warn")
 	}
@@ -195,7 +164,7 @@ func TestHandleOutPipe(t *testing.T) {
 
 func TestHandlePipes(t *testing.T) {
 	e := testEmitter{}
-	l := testLogger{}
+	l := testutil.Logger{}
 	p := New(Config{Emitter: &e, Logger: &l})
 
 	outR, outW := io.Pipe()
@@ -226,7 +195,7 @@ func TestHandlePipes(t *testing.T) {
 		t.Errorf("invalid emit")
 	}
 
-	rets2 := l.warn.String()
+	rets2 := l.Warn.String()
 	if rets2 != "this\nis\ntest\n" {
 		t.Errorf("invalid warn")
 	}
@@ -246,7 +215,7 @@ func TestTail(t *testing.T) {
 	}()
 
 	e := testEmitter{}
-	l := testLogger{}
+	l := testutil.Logger{}
 	p := New(Config{Emitter: &e, Logger: &l, File: path})
 
 	err = p.Start()
@@ -288,7 +257,7 @@ func TestTail(t *testing.T) {
 		t.Errorf("invalid emit: %s", rets)
 	}
 
-	rets2 := l.warn.String()
+	rets2 := l.Warn.String()
 	if rets2 != "" {
 		t.Errorf("invalid warn: %s", rets2)
 	}
