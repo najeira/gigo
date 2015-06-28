@@ -140,7 +140,6 @@ func TestHandleErrPipe(t *testing.T) {
 	wg.Wait()
 
 	rets := l.warn.String()
-
 	if rets != "thisistest" {
 		t.Errorf("invalid warn")
 	}
@@ -155,9 +154,8 @@ func TestHandleLine(t *testing.T) {
 	p.handleLine("test")
 
 	rets := e.buffer.String()
-
 	if rets != "thisistest" {
-		t.Errorf("invalid warn")
+		t.Errorf("invalid emit")
 	}
 }
 
@@ -183,8 +181,46 @@ func TestHandleOutPipe(t *testing.T) {
 	wg.Wait()
 
 	rets := e.buffer.String()
-
 	if rets != "thisistest" {
+		t.Errorf("invalid emit")
+	}
+}
+
+func TestHandlePipes(t *testing.T) {
+	e := testEmitter{}
+	l := testLogger{}
+	p := New(Config{Emitter: &e, Logger: &l})
+
+	outR, outW := io.Pipe()
+	errR, errW := io.Pipe()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		p.handlePipes(outR, errR)
+		wg.Done()
+	}()
+
+	outW.Write([]byte("this\n"))
+	outW.Write([]byte("is\n"))
+	outW.Write([]byte("test\n"))
+	outW.Close()
+
+	errW.Write([]byte("this\n"))
+	errW.Write([]byte("is\n"))
+	errW.Write([]byte("test\n"))
+	errW.Close()
+
+	wg.Wait()
+
+	rets := e.buffer.String()
+	if rets != "thisistest" {
+		t.Errorf("invalid emit")
+	}
+
+	rets2 := l.warn.String()
+	if rets2 != "thisistest" {
 		t.Errorf("invalid warn")
 	}
 }
