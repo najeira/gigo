@@ -2,11 +2,45 @@ package in_tail
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
 	"testing"
 )
+
+type testLogger struct {
+	debug  bytes.Buffer
+	info   bytes.Buffer
+	notice bytes.Buffer
+	warn   bytes.Buffer
+	err    bytes.Buffer
+	crit   bytes.Buffer
+}
+
+func (l *testLogger) Debugf(format string, args ...interface{}) {
+	l.debug.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (l *testLogger) Infof(format string, args ...interface{}) {
+	l.info.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (l *testLogger) Noticef(format string, args ...interface{}) {
+	l.notice.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (l *testLogger) Warnf(format string, args ...interface{}) {
+	l.warn.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (l *testLogger) Errorf(format string, args ...interface{}) {
+	l.err.WriteString(fmt.Sprintf(format, args...))
+}
+
+func (l *testLogger) Criticalf(format string, args ...interface{}) {
+	l.crit.WriteString(fmt.Sprintf(format, args...))
+}
 
 func TestTrimCrLf(t *testing.T) {
 	if trimCrLf("hoge") != "hoge" {
@@ -24,15 +58,6 @@ func TestTrimCrLf(t *testing.T) {
 	if trimCrLf("hoge\n\r") != "hoge" {
 		t.Fail()
 	}
-}
-
-type scanReceiver struct {
-	buffer bytes.Buffer
-	err    error
-}
-
-func (s *scanReceiver) handle(line string) {
-	_, s.err = s.buffer.WriteString(line)
 }
 
 func TestScan(t *testing.T) {
@@ -75,5 +100,33 @@ func TestScan(t *testing.T) {
 	}
 	if lines[3] != "" {
 		t.Errorf("invalid line")
+	}
+}
+
+func TestHandleErrPipe(t *testing.T) {
+	l := testLogger{}
+	p := New(Config{Logger: &l})
+
+	r, w := io.Pipe()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		p.handleErrPipe(r)
+		wg.Done()
+	}()
+
+	w.Write([]byte("this\n"))
+	w.Write([]byte("is\n"))
+	w.Write([]byte("test\n"))
+	w.Close()
+
+	wg.Wait()
+
+	rets := l.warn.String()
+
+	if rets != "thisistest" {
+		t.Errorf("invalid warn")
 	}
 }
