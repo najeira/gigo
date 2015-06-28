@@ -91,18 +91,18 @@ func (p *Input) handleErrPipe(errPipe io.Reader) {
 
 func (p *Input) handleLine(line string) {
 	if p.emitter != nil {
-		trimmed := p.trimCrLf(line)
+		trimmed := trimCrLf(line)
 		p.emitter.Emit(trimmed)
 	}
 }
 
-func (p *Input) trimCrLf(line string) string {
+func trimCrLf(line string) string {
 	for len(line) > 0 {
 		ch := line[len(line)-1]
 		if ch != '\n' && ch != '\r' {
 			return line
 		}
-		line = line[:len(line)]
+		line = line[:len(line)-1]
 	}
 	return line
 }
