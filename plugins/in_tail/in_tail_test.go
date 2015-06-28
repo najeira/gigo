@@ -42,6 +42,21 @@ func (l *testLogger) Criticalf(format string, args ...interface{}) {
 	l.crit.WriteString(fmt.Sprintf(format, args...))
 }
 
+type testEmitter struct {
+	buffer bytes.Buffer
+}
+
+func (e *testEmitter) Emit(msg interface{}) (err error) {
+	if b, ok := msg.([]byte); ok {
+		_, err = e.buffer.Write(b)
+	} else if s, ok := msg.(string); ok {
+		_, err = e.buffer.WriteString(s)
+	} else {
+		err = fmt.Errorf("unknown type")
+	}
+	return
+}
+
 func TestTrimCrLf(t *testing.T) {
 	if trimCrLf("hoge") != "hoge" {
 		t.Fail()
@@ -125,6 +140,21 @@ func TestHandleErrPipe(t *testing.T) {
 	wg.Wait()
 
 	rets := l.warn.String()
+
+	if rets != "thisistest" {
+		t.Errorf("invalid warn")
+	}
+}
+
+func TestHandleLine(t *testing.T) {
+	e := testEmitter{}
+	p := New(Config{Emitter: &e})
+
+	p.handleLine("this")
+	p.handleLine("is")
+	p.handleLine("test")
+
+	rets := e.buffer.String()
 
 	if rets != "thisistest" {
 		t.Errorf("invalid warn")
