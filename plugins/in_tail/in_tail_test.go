@@ -160,3 +160,31 @@ func TestHandleLine(t *testing.T) {
 		t.Errorf("invalid warn")
 	}
 }
+
+func TestHandleOutPipe(t *testing.T) {
+	e := testEmitter{}
+	p := New(Config{Emitter: &e})
+
+	r, w := io.Pipe()
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	go func() {
+		p.handleOutPipe(r)
+		wg.Done()
+	}()
+
+	w.Write([]byte("this\n"))
+	w.Write([]byte("is\n"))
+	w.Write([]byte("test\n"))
+	w.Close()
+
+	wg.Wait()
+
+	rets := e.buffer.String()
+
+	if rets != "thisistest" {
+		t.Errorf("invalid warn")
+	}
+}
