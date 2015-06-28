@@ -9,24 +9,32 @@ import (
 
 type Config struct {
 	fluent.Config
-	Tag    string
-	Logger gigo.Logger
+	Tag       string
+	FieldName string
+	Logger    gigo.Logger
+}
+
+type Fluent interface {
+	Post(string, interface{}) error
+	Close() error
 }
 
 type Output struct {
-	config fluent.Config
-	tag    string
-	logger gigo.Logger
-	output *fluent.Fluent
+	config    fluent.Config
+	tag       string
+	fieldName string
+	logger    gigo.Logger
+	output    Fluent
 }
 
 var _ gigo.Output = (*Output)(nil)
 
 func New(config Config) *Output {
 	return &Output{
-		config: config.Config,
-		tag:    config.Tag,
-		logger: config.Logger,
+		config:    config.Config,
+		tag:       config.Tag,
+		fieldName: config.FieldName,
+		logger:    config.Logger,
 	}
 }
 
@@ -56,5 +64,6 @@ func (p *Output) Emit(msg interface{}) error {
 	if p.output == nil {
 		return fmt.Errorf("not started")
 	}
-	return p.output.Post(p.tag, msg)
+	v := map[string]interface{}{p.fieldName: msg}
+	return p.output.Post(p.tag, v)
 }
