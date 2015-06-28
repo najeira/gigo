@@ -77,4 +77,12 @@ func TestEmit(t *testing.T) {
 	if err = checkValue(f.messages[0], "tag", "message", "hoge"); err != nil {
 		t.Error(err)
 	}
+
+	if err = checkValue(f.messages[1], "tag", "message", "fuga"); err != nil {
+		t.Error(err)
+	}
+
+	if err = checkValue(f.messages[2], "tag", "message", "piyo"); err != nil {
+		t.Error(err)
+	}
 }
