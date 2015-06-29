@@ -1,12 +1,19 @@
 package gigo
 
 type Logger interface {
+	Verbosef(format string, args ...interface{})
 	Debugf(format string, args ...interface{})
 	Infof(format string, args ...interface{})
 	Noticef(format string, args ...interface{})
 	Warnf(format string, args ...interface{})
 	Errorf(format string, args ...interface{})
 	Criticalf(format string, args ...interface{})
+}
+
+func Verbosef(l Logger, format string, args ...interface{}) {
+	if l != nil {
+		l.Verbosef(format, args...)
+	}
 }
 
 func Debugf(l Logger, format string, args ...interface{}) {
