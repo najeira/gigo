@@ -71,27 +71,28 @@ func (r *Reader) Read(buf []byte) (int, error) {
 	return n, nil
 }
 
-func (r *Reader) closeConn() {
-	if r.conn != nil {
-		if err := r.conn.Close(); err != nil {
-			r.logger.Warnf("in_net: conn close error %s", err)
-		} else {
-			r.logger.Debugf("in_net: conn close")
-		}
-		r.conn = nil
+func (r *Reader) closeConn() error {
+	if r.conn == nil {
+		return nil
 	}
+
+	err := r.conn.Close()
+	if err != nil {
+		r.logger.Warnf("in_net: conn close error %s", err)
+	} else {
+		r.logger.Debugf("in_net: conn close")
+	}
+	r.conn = nil
+	return err
 }
 
 func (r *Reader) Close() error {
-	r.closeConn()
-	if r.listener != nil {
-		err := r.listener.Close()
-		r.listener = nil
-		if err != nil {
-			r.logger.Warnf("in_net: listener close error %s", err)
-			return err
-		}
-		r.logger.Infof("in_net: listener close")
+	err := r.listener.Close()
+	if err != nil {
+		r.logger.Warnf("in_net: listener close error %s", err)
+	} else {
+		r.logger.Debugf("in_net: listener close")
 	}
-	return nil
+	r.closeConn()
+	return err
 }
