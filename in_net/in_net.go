@@ -50,37 +50,48 @@ func (r *Reader) Read(buf []byte) (int, error) {
 		if err != nil {
 			r.logger.Warnf("in_net: accept error %s", err)
 			return 0, err
+		} else {
+			r.logger.Debugf("in_net: accept")
 		}
 		r.conn = conn
 	}
 
 	n, err := r.conn.Read(buf)
 	if err != nil {
-		r.conn.Close()
-		r.conn = nil
-
 		if err != io.EOF {
 			r.logger.Warnf("in_net: read error %s", err)
+			r.closeConn()
 			return n, err
 		}
-		r.logger.Debugf("in_net: read error %s", err)
-	} else {
-		r.logger.Tracef("in_net: read %d bytes", n)
+		r.logger.Debugf("in_net: read %d bytes %s", n, err)
+		r.closeConn()
+		return n, nil
 	}
+	r.logger.Tracef("in_net: read %d bytes", n)
 	return n, nil
 }
 
-func (r *Reader) Close() error {
-	if r.conn == nil {
-		return nil
+func (r *Reader) closeConn() {
+	if r.conn != nil {
+		if err := r.conn.Close(); err != nil {
+			r.logger.Warnf("in_net: conn close error %s", err)
+		} else {
+			r.logger.Debugf("in_net: conn close")
+		}
+		r.conn = nil
 	}
+}
 
-	err := r.conn.Close()
-	r.conn = nil
-	if err != nil {
-		r.logger.Warnf("in_net: close error %s", err)
-	} else {
-		r.logger.Infof("in_net: close")
+func (r *Reader) Close() error {
+	r.closeConn()
+	if r.listener != nil {
+		err := r.listener.Close()
+		r.listener = nil
+		if err != nil {
+			r.logger.Warnf("in_net: listener close error %s", err)
+			return err
+		}
+		r.logger.Infof("in_net: listener close")
 	}
-	return err
+	return nil
 }
