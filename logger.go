@@ -1,53 +1,38 @@
 package gigo
 
 type Logger interface {
-	Verbosef(format string, args ...interface{})
+	Tracef(format string, args ...interface{})
 	Debugf(format string, args ...interface{})
 	Infof(format string, args ...interface{})
-	Noticef(format string, args ...interface{})
 	Warnf(format string, args ...interface{})
 	Errorf(format string, args ...interface{})
-	Criticalf(format string, args ...interface{})
+	Fatalf(format string, args ...interface{})
 }
 
-func Verbosef(l Logger, format string, args ...interface{}) {
+func EnsureLogger(l Logger) Logger {
 	if l != nil {
-		l.Verbosef(format, args...)
+		return l
 	}
+	return &blackholeLogger{}
 }
 
-func Debugf(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Debugf(format, args...)
-	}
+type blackholeLogger struct {
 }
 
-func Infof(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Infof(format, args...)
-	}
+func (l *blackholeLogger) Tracef(format string, args ...interface{}) {
 }
 
-func Noticef(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Noticef(format, args...)
-	}
+func (l *blackholeLogger) Debugf(format string, args ...interface{}) {
 }
 
-func Warnf(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Warnf(format, args...)
-	}
+func (l *blackholeLogger) Infof(format string, args ...interface{}) {
 }
 
-func Errorf(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Errorf(format, args...)
-	}
+func (l *blackholeLogger) Warnf(format string, args ...interface{}) {
 }
 
-func Criticalf(l Logger, format string, args ...interface{}) {
-	if l != nil {
-		l.Criticalf(format, args...)
-	}
+func (l *blackholeLogger) Errorf(format string, args ...interface{}) {
+}
+
+func (l *blackholeLogger) Fatalf(format string, args ...interface{}) {
 }
