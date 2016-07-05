@@ -6,7 +6,6 @@ type Logger interface {
 	Infof(format string, args ...interface{})
 	Warnf(format string, args ...interface{})
 	Errorf(format string, args ...interface{})
-	Fatalf(format string, args ...interface{})
 }
 
 func EnsureLogger(l Logger) Logger {
@@ -32,7 +31,4 @@ func (l *blackholeLogger) Warnf(format string, args ...interface{}) {
 }
 
 func (l *blackholeLogger) Errorf(format string, args ...interface{}) {
-}
-
-func (l *blackholeLogger) Fatalf(format string, args ...interface{}) {
 }
