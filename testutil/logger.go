@@ -3,6 +3,7 @@ package testutil
 import (
 	"bytes"
 	"fmt"
+	"log"
 )
 
 type Logger struct {
@@ -13,22 +14,28 @@ type Logger struct {
 	Error bytes.Buffer
 }
 
+func myPrintf(buf bytes.Buffer, format string, args ...interface{}) {
+	s := fmt.Sprintf(format, args...)
+	log.Println(s)
+	buf.WriteString(s + "\n")
+}
+
 func (l *Logger) Tracef(format string, args ...interface{}) {
-	l.Trace.WriteString(fmt.Sprintf(format, args...) + "\n")
+	myPrintf(l.Trace, format, args...)
 }
 
 func (l *Logger) Debugf(format string, args ...interface{}) {
-	l.Debug.WriteString(fmt.Sprintf(format, args...) + "\n")
+	myPrintf(l.Debug, format, args...)
 }
 
 func (l *Logger) Infof(format string, args ...interface{}) {
-	l.Info.WriteString(fmt.Sprintf(format, args...) + "\n")
+	myPrintf(l.Info, format, args...)
 }
 
 func (l *Logger) Warnf(format string, args ...interface{}) {
-	l.Warn.WriteString(fmt.Sprintf(format, args...) + "\n")
+	myPrintf(l.Warn, format, args...)
 }
 
 func (l *Logger) Errorf(format string, args ...interface{}) {
-	l.Error.WriteString(fmt.Sprintf(format, args...) + "\n")
+	myPrintf(l.Error, format, args...)
 }
