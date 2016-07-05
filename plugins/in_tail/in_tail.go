@@ -8,113 +8,97 @@ import (
 	"github.com/najeira/gigo"
 )
 
+var (
+	_ io.ReadCloser = (*Reader)(nil)
+)
+
 type Config struct {
-	File    string
-	Emitter gigo.Emitter
-	Logger  gigo.Logger
+	File   string
+	Logger gigo.Logger
 }
 
-type Input struct {
-	file    string
-	emitter gigo.Emitter
-	logger  gigo.Logger
+type Reader struct {
 	cmd     *exec.Cmd
+	outPipe io.ReadCloser
+	logger  gigo.Logger
 }
 
-var _ gigo.Input = (*Input)(nil)
-
-func New(config Config) *Input {
-	return &Input{
-		emitter: config.Emitter,
-		logger:  config.Logger,
-		file:    config.File,
-		cmd:     nil,
+func Open(config Config) (*Reader, error) {
+	r := &Reader{
+		logger: gigo.EnsureLogger(config.Logger),
 	}
-}
-
-func (p *Input) Start() error {
-	gigo.Debugf(p.logger, "in_tail: start")
-	if err := p.exec(p.file); err != nil {
-		return err
+	if err := r.open(config.File); err != nil {
+		return nil, err
 	}
-	return nil
+	return r, nil
 }
 
-func (p *Input) Stop() error {
-	gigo.Debugf(p.logger, "in_tail: stop")
-	if p.cmd != nil && p.cmd.Process != nil {
-		gigo.Debugf(p.logger, "in_tail: killing %d", p.cmd.Process.Pid)
-		return p.cmd.Process.Kill()
-	}
-	return nil
-}
+func (r *Reader) open(file string) error {
+	r.cmd = exec.Command("tail", "-n", "0", "-F", file)
 
-func (p *Input) exec(file string) error {
-	p.cmd = exec.Command("tail", "-n", "0", "-F", file)
-
-	outPipe, err := p.cmd.StdoutPipe()
+	outPipe, err := r.cmd.StdoutPipe()
 	if err != nil {
+		r.logger.Warnf("in_tail: stdout error %s", err)
 		return err
 	}
+	r.outPipe = outPipe
 
-	errPipe, err := p.cmd.StderrPipe()
+	errPipe, err := r.cmd.StderrPipe()
 	if err != nil {
+		r.logger.Warnf("in_tail: stderr error %s", err)
 		return err
 	}
 
-	if err := p.cmd.Start(); err != nil {
+	if err := r.cmd.Start(); err != nil {
+		r.logger.Warnf("in_tail: start error %s", err)
 		return err
 	}
 
-	p.handlePipes(outPipe, errPipe)
+	go r.scanErrPipe(errPipe)
 
-	gigo.Debugf(p.logger, "in_tail: tail -n 0 -F %s", file)
+	r.logger.Infof("in_tail: tail -n 0 -F %s", file)
 	return nil
 }
 
-func (p *Input) handlePipes(outPipe, errPipe io.Reader) {
-	p.handleOutPipe(outPipe)
-	p.handleErrPipe(errPipe)
+func (r *Reader) Read(buf []byte) (int, error) {
+	return r.outPipe.Read(buf)
 }
 
-func (p *Input) handleOutPipe(outPipe io.Reader) {
-	go p.scan(outPipe, func(line string) {
-		p.handleLine(line)
-	})
-}
+func (r *Reader) scanErrPipe(pipe io.Reader) error {
+	r.logger.Debugf("in_tail: scan stderr")
 
-func (p *Input) handleErrPipe(errPipe io.Reader) {
-	go p.scan(errPipe, func(line string) {
-		p.logger.Warnf(line)
-	})
-}
-
-func (p *Input) handleLine(line string) {
-	if p.emitter != nil {
-		trimmed := trimCrLf(line)
-		p.emitter.Emit(trimmed)
-	}
-}
-
-func trimCrLf(line string) string {
-	for len(line) > 0 {
-		ch := line[len(line)-1]
-		if ch != '\n' && ch != '\r' {
-			return line
-		}
-		line = line[:len(line)-1]
-	}
-	return line
-}
-
-func (p *Input) scan(reader io.Reader, handler func(line string)) {
-	gigo.Debugf(p.logger, "in_tail: scan started")
-	scanner := bufio.NewScanner(reader)
+	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		handler(scanner.Text())
+		r.logger.Warnf(scanner.Text())
 	}
+
 	if err := scanner.Err(); err != nil {
-		gigo.Warnf(p.logger, "in_tail: scan error %v", err)
+		r.logger.Warnf("in_tail: scan error %s", err)
+		return err
 	}
-	gigo.Debugf(p.logger, "in_tail: scan finished")
+
+	r.logger.Debugf("in_tail: scan end")
+	return nil
+}
+
+func (r *Reader) Close() error {
+	if r.cmd == nil || r.cmd.Process == nil {
+		return nil
+	}
+
+	r.logger.Debugf("in_tail: kill %d", r.cmd.Process.Pid)
+
+	if err := r.cmd.Process.Kill(); err != nil {
+		r.logger.Warnf("in_tail: kill error %s", err)
+		return err
+	}
+
+	if err := r.cmd.Wait(); err != nil {
+		// err will be "signal: killed"
+		r.logger.Debugf("in_tail: wait %s", err)
+	}
+	r.cmd = nil
+
+	r.logger.Infof("in_tail: stop")
+	return nil
 }
