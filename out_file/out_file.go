@@ -36,11 +36,11 @@ func Open(config Config) (*Writer, error) {
 func (w *Writer) open(name string, flag int, perm os.FileMode) error {
 	f, err := os.OpenFile(name, flag, perm)
 	if err != nil {
-		w.logger.Warnf("out_file: start error %s", err)
+		w.logger.Warnf("out_file: open error %s", err)
 		return err
 	}
 	w.file = f
-	w.logger.Infof("out_file: start")
+	w.logger.Infof("out_file: open file %s", name)
 	return nil
 }
 
@@ -59,13 +59,17 @@ func (w *Writer) Close() error {
 		return nil
 	}
 
+	if err := w.file.Sync(); err != nil {
+		w.logger.Warnf("out_file: sync error %s", err)
+	}
+
 	err := w.file.Close()
 	w.file = nil
 	if err != nil {
-		w.logger.Warnf("out_file: stop error %s", err)
+		w.logger.Warnf("out_file: close error %s", err)
 		return err
 	}
 
-	w.logger.Infof("out_file: stop")
+	w.logger.Infof("out_file: close")
 	return nil
 }
