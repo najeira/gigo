@@ -34,7 +34,7 @@ func TestScanErrPipe(t *testing.T) {
 
 	rets := l.Warn.String()
 	if rets != "this\nis\ntest\n" {
-		t.Errorf("invalid warn")
+		t.Error(rets)
 	}
 }
 
@@ -101,8 +101,14 @@ func TestTail(t *testing.T) {
 		t.Errorf("invalid emit: %s", rets)
 	}
 
-	rets2 := l.Warn.String()
-	if rets2 != "" {
-		t.Errorf("invalid warn: %s", rets2)
+	checkNoWarnNoError(t, l)
+}
+
+func checkNoWarnNoError(t *testing.T, l testutil.Logger) {
+	if warns := l.Warn.String(); warns != "" {
+		t.Error(warns)
+	}
+	if errs := l.Error.String(); errs != "" {
+		t.Error(errs)
 	}
 }

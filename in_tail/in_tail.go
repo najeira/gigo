@@ -61,7 +61,9 @@ func (r *Reader) open(file string) error {
 }
 
 func (r *Reader) Read(buf []byte) (int, error) {
-	return r.outPipe.Read(buf)
+	n, err := r.outPipe.Read(buf)
+	r.logger.Tracef("in_tail: read %d bytes", n)
+	return n, err
 }
 
 func (r *Reader) scanErrPipe(pipe io.Reader) error {
@@ -86,12 +88,12 @@ func (r *Reader) Close() error {
 		return nil
 	}
 
-	r.logger.Debugf("in_tail: kill %d", r.cmd.Process.Pid)
-
 	if err := r.cmd.Process.Kill(); err != nil {
 		r.logger.Warnf("in_tail: kill error %s", err)
 		return err
 	}
+
+	r.logger.Debugf("in_tail: kill %d", r.cmd.Process.Pid)
 
 	if err := r.cmd.Wait(); err != nil {
 		// err will be "signal: killed"
@@ -99,6 +101,6 @@ func (r *Reader) Close() error {
 	}
 	r.cmd = nil
 
-	r.logger.Infof("in_tail: stop")
+	r.logger.Infof("in_tail: close")
 	return nil
 }
