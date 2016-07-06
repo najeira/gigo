@@ -1,9 +1,12 @@
 package in_net
 
 import (
-	"bufio"
+	"bytes"
+	"io"
+	"io/ioutil"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/najeira/gigo/testutil"
 )
@@ -12,7 +15,23 @@ func TestReader(t *testing.T) {
 	addr := ":9753"
 
 	l := testutil.Logger{}
-	p, err := Open(Config{Logger: &l, Net: "tcp", Addr: addr})
+
+	var buf bytes.Buffer
+	handler := func(conn net.Conn) {
+		for {
+			_, err := io.Copy(&buf, conn)
+			if err != nil {
+				return
+			}
+		}
+	}
+
+	p, err := Open(Config{
+		Logger:  &l,
+		Net:     "tcp",
+		Addr:    addr,
+		Handler: handler,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,45 +74,14 @@ func TestReader(t *testing.T) {
 		t.Error(err)
 	}
 
-	scanner := bufio.NewScanner(p)
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "this" {
-			t.Errorf("expect 'this' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
+	time.Sleep(time.Millisecond * 10)
 
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "is" {
-			t.Errorf("expect 'is' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "test" {
-			t.Errorf("expect 'test' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "second" {
-			t.Errorf("expect 'second' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	if err := scanner.Err(); err != nil {
+	ret, err := ioutil.ReadAll(&buf)
+	rets := string(ret)
+	if err != nil {
 		t.Error(err)
+	} else if rets != "this\nis\ntest\nsecond\n" {
+		t.Error(rets)
 	}
 
 	if err = p.Close(); err != nil {
@@ -102,101 +90,6 @@ func TestReader(t *testing.T) {
 
 	if warns := l.Warn.String(); warns != "" {
 		t.Errorf("invalid warn: %s", warns)
-	}
-
-	checkNoWarnNoError(t, l)
-}
-
-func TestReader2(t *testing.T) {
-	addr := ":9753"
-
-	l := testutil.Logger{}
-	p, err := Open(Config{Logger: &l, Net: "tcp", Addr: addr})
-	if err != nil {
-		t.Fatal(err)
-	}
-	scanner := bufio.NewScanner(p)
-
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = conn.Write([]byte("this\n"))
-	if err != nil {
-		t.Error(err)
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "this" {
-			t.Errorf("expect 'this' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	_, err = conn.Write([]byte("is\n"))
-	if err != nil {
-		t.Error(err)
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "is" {
-			t.Errorf("expect 'is' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	_, err = conn.Write([]byte("test\n"))
-	if err != nil {
-		t.Error(err)
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "test" {
-			t.Errorf("expect 'test' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	if err := conn.Close(); err != nil {
-		t.Error(err)
-	}
-
-	conn, err = net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, err = conn.Write([]byte("second\n"))
-	if err != nil {
-		t.Error(err)
-	}
-
-	if scanner.Scan() {
-		line := scanner.Text()
-		if line != "second" {
-			t.Errorf("expect 'second' got: '%s'", line)
-		}
-	} else {
-		t.Errorf("scan failed")
-	}
-
-	if err := conn.Close(); err != nil {
-		t.Error(err)
-	}
-
-	if err := scanner.Err(); err != nil {
-		t.Error(err)
-	}
-
-	if err = p.Close(); err != nil {
-		t.Error(err)
 	}
 
 	checkNoWarnNoError(t, l)

@@ -8,24 +8,28 @@ import (
 )
 
 var (
-	_ io.ReadCloser = (*Reader)(nil)
+	_ io.Closer = (*Reader)(nil)
 )
 
+type Handler func(net.Conn)
+
 type Config struct {
-	Net    string
-	Addr   string
-	Logger gigo.Logger
+	Net     string
+	Addr    string
+	Handler Handler
+	Logger  gigo.Logger
 }
 
 type Reader struct {
 	listener net.Listener
-	conn     net.Conn
+	handler  Handler
 	logger   gigo.Logger
 }
 
 func Open(config Config) (*Reader, error) {
 	r := &Reader{
-		logger: gigo.EnsureLogger(config.Logger),
+		handler: config.Handler,
+		logger:  gigo.EnsureLogger(config.Logger),
 	}
 	if err := r.open(config.Net, config.Addr); err != nil {
 		return nil, err
@@ -41,49 +45,31 @@ func (r *Reader) open(network, address string) error {
 	}
 	r.listener = ln
 	r.logger.Infof("in_net: listen %s %s", network, address)
+
+	go r.accept(ln)
+
 	return nil
 }
 
-func (r *Reader) Read(buf []byte) (int, error) {
-	if r.conn == nil {
-		conn, err := r.listener.Accept()
+func (r *Reader) accept(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
 		if err != nil {
 			r.logger.Warnf("in_net: accept error %s", err)
-			return 0, err
-		} else {
-			r.logger.Debugf("in_net: accept")
+			return
 		}
-		r.conn = conn
+		r.logger.Debugf("in_net: accept %s->%s",
+			conn.LocalAddr().String(), conn.RemoteAddr().String())
+		go r.handleConn(conn)
 	}
-
-	n, err := r.conn.Read(buf)
-	if err != nil {
-		if err != io.EOF {
-			r.logger.Warnf("in_net: read error %s", err)
-			r.closeConn()
-			return n, err
-		}
-		r.logger.Debugf("in_net: read %d bytes %s", n, err)
-		r.closeConn()
-		return n, nil
-	}
-	r.logger.Tracef("in_net: read %d bytes", n)
-	return n, nil
+	panic("unreachable")
 }
 
-func (r *Reader) closeConn() error {
-	if r.conn == nil {
-		return nil
+func (r *Reader) handleConn(conn net.Conn) {
+	defer conn.Close()
+	if r.handler != nil {
+		r.handler(conn)
 	}
-
-	err := r.conn.Close()
-	if err != nil {
-		r.logger.Warnf("in_net: conn close error %s", err)
-	} else {
-		r.logger.Debugf("in_net: conn close")
-	}
-	r.conn = nil
-	return err
 }
 
 func (r *Reader) Close() error {
@@ -93,6 +79,5 @@ func (r *Reader) Close() error {
 	} else {
 		r.logger.Debugf("in_net: listener close")
 	}
-	r.closeConn()
 	return err
 }
