@@ -1,42 +1,11 @@
 package in_tail
 
 import (
-	"io"
 	"io/ioutil"
 	"os"
-	"sync"
 	"testing"
 	"time"
-
-	"github.com/najeira/gigo/testutil"
 )
-
-func TestScanErrPipe(t *testing.T) {
-	l := testutil.Logger{}
-	p := &Reader{logger: &l}
-
-	r, w := io.Pipe()
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-
-	go func() {
-		p.scanErrPipe(r)
-		wg.Done()
-	}()
-
-	w.Write([]byte("this\n"))
-	w.Write([]byte("is\n"))
-	w.Write([]byte("test\n"))
-	w.Close()
-
-	wg.Wait()
-
-	rets := l.Warn.String()
-	if rets != "this\nis\ntest\n" {
-		t.Error(rets)
-	}
-}
 
 func TestTail(t *testing.T) {
 	f, err := ioutil.TempFile(os.TempDir(), "")
@@ -51,8 +20,7 @@ func TestTail(t *testing.T) {
 		os.Remove(path)
 	}()
 
-	l := testutil.Logger{}
-	p, err := Open(Config{Logger: &l, File: path})
+	p, err := Open(Config{File: path})
 	if err != nil {
 		t.Error(err)
 	}
@@ -99,16 +67,5 @@ func TestTail(t *testing.T) {
 	rets := string(<-retCh)
 	if rets != "this\nis\ntest\n" {
 		t.Errorf("invalid emit: %s", rets)
-	}
-
-	checkNoWarnNoError(t, l)
-}
-
-func checkNoWarnNoError(t *testing.T, l testutil.Logger) {
-	if warns := l.Warn.String(); warns != "" {
-		t.Error(warns)
-	}
-	if errs := l.Error.String(); errs != "" {
-		t.Error(errs)
 	}
 }
