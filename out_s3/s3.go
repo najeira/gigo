@@ -39,7 +39,7 @@ type Writer struct {
 	publicRead        bool
 	reducedRedundancy bool
 
-	svc  *s3.S3
+	svc  s3Service
 	buf  *bytes.Buffer
 	gw   *gzip.Writer
 	size int
@@ -140,6 +140,10 @@ func newS3(config Config) *s3.S3 {
 	}
 	sess := session.New(cfg)
 	return s3.New(sess)
+}
+
+type s3Service interface {
+	PutObject(input *s3.PutObjectInput) (*s3.PutObjectOutput, error)
 }
 
 func Exist(config Config) (bool, error) {
