@@ -20,8 +20,8 @@ func TestTail(t *testing.T) {
 		os.Remove(path)
 	}()
 
-	p, err := Open(Config{File: path})
-	if err != nil {
+	p := New(Config{File: path})
+	if err := p.Open(); err != nil {
 		t.Error(err)
 	}
 
