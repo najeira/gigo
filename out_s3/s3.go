@@ -29,9 +29,6 @@ type Config struct {
 	Key               string
 	PublicRead        bool
 	ReducedRedundancy bool
-
-	Logger   gigo.Logger
-	LogLevel gigo.LogLevel
 }
 
 type Writer struct {
@@ -61,8 +58,6 @@ func New(config Config) *Writer {
 		size:              0,
 	}
 	w.Name = pluginName
-	w.LogLevel = config.LogLevel
-	w.Logger = config.Logger
 	return w
 }
 

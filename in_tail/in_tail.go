@@ -18,32 +18,25 @@ var (
 
 type Config struct {
 	File string
-
-	Logger   gigo.Logger
-	LogLevel gigo.LogLevel
 }
 
 type Reader struct {
 	gigo.Mixin
 
+	file    string
 	cmd     *exec.Cmd
 	outPipe io.ReadCloser
 }
 
-func Open(config Config) (*Reader, error) {
+func New(config Config) *Reader {
 	r := &Reader{}
 	r.Name = pluginName
-	r.LogLevel = config.LogLevel
-	r.Logger = config.Logger
-
-	if err := r.open(config.File); err != nil {
-		return nil, err
-	}
-	return r, nil
+	r.file = config.File
+	return r
 }
 
-func (r *Reader) open(file string) error {
-	r.cmd = exec.Command("tail", "-n", "0", "-F", file)
+func (r *Reader) Open() error {
+	r.cmd = exec.Command("tail", "-n", "0", "-F", r.file)
 
 	outPipe, err := r.cmd.StdoutPipe()
 	if err != nil {
@@ -65,7 +58,7 @@ func (r *Reader) open(file string) error {
 
 	go r.scanErrPipe(errPipe)
 
-	r.Debugf("tail -n 0 -F %s", file)
+	r.Debugf("tail -n 0 -F %s", r.file)
 	return nil
 }
 
