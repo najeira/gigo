@@ -8,78 +8,84 @@ import (
 	"github.com/najeira/gigo"
 )
 
+const (
+	pluginName = "in_tail"
+)
+
 var (
 	_ io.ReadCloser = (*Reader)(nil)
 )
 
 type Config struct {
-	File   string
-	Logger gigo.Logger
+	File string
 }
 
 type Reader struct {
+	gigo.Mixin
+
+	file    string
 	cmd     *exec.Cmd
 	outPipe io.ReadCloser
-	logger  gigo.Logger
 }
 
-func Open(config Config) (*Reader, error) {
-	r := &Reader{
-		logger: gigo.EnsureLogger(config.Logger),
-	}
-	if err := r.open(config.File); err != nil {
-		return nil, err
-	}
-	return r, nil
+func New(config Config) *Reader {
+	r := &Reader{}
+	r.Name = pluginName
+	r.file = config.File
+	return r
 }
 
-func (r *Reader) open(file string) error {
-	r.cmd = exec.Command("tail", "-n", "0", "-F", file)
+func (r *Reader) Open() error {
+	r.cmd = exec.Command("tail", "-n", "0", "-F", r.file)
 
 	outPipe, err := r.cmd.StdoutPipe()
 	if err != nil {
-		r.logger.Warnf("in_tail: stdout error %s", err)
+		r.Errorf("stdout error %s", err)
 		return err
 	}
 	r.outPipe = outPipe
 
 	errPipe, err := r.cmd.StderrPipe()
 	if err != nil {
-		r.logger.Warnf("in_tail: stderr error %s", err)
+		r.Errorf("stderr error %s", err)
 		return err
 	}
 
 	if err := r.cmd.Start(); err != nil {
-		r.logger.Warnf("in_tail: start error %s", err)
+		r.Errorf("start error %s", err)
 		return err
 	}
 
 	go r.scanErrPipe(errPipe)
 
-	r.logger.Infof("in_tail: tail -n 0 -F %s", file)
+	r.Debugf("tail -n 0 -F %s", r.file)
 	return nil
 }
 
 func (r *Reader) Read(buf []byte) (int, error) {
 	n, err := r.outPipe.Read(buf)
-	r.logger.Tracef("in_tail: read %d bytes", n)
+	if err != nil {
+		r.Infof("read %s", err)
+	} else {
+		r.Debugf("read %d bytes", n)
+	}
 	return n, err
 }
 
 func (r *Reader) scanErrPipe(pipe io.Reader) error {
-	r.logger.Debugf("in_tail: scan stderr")
+	r.Debug("scan stderr")
 
 	scanner := bufio.NewScanner(pipe)
 	for scanner.Scan() {
-		r.logger.Warnf(scanner.Text())
+		r.Infof(scanner.Text())
 	}
 
 	if err := scanner.Err(); err != nil {
-		r.logger.Warnf("in_tail: scan error %s", err)
+		r.Infof("scan error %s", err)
 		return err
 	}
 
-	r.logger.Debugf("in_tail: scan end")
+	r.Debug("scan end")
 	return nil
 }
 
@@ -89,18 +95,16 @@ func (r *Reader) Close() error {
 	}
 
 	if err := r.cmd.Process.Kill(); err != nil {
-		r.logger.Warnf("in_tail: kill error %s", err)
+		r.Infof("kill error %s", err)
 		return err
 	}
 
-	r.logger.Debugf("in_tail: kill %d", r.cmd.Process.Pid)
+	r.Debugf("kill %d", r.cmd.Process.Pid)
 
 	if err := r.cmd.Wait(); err != nil {
-		// err will be "signal: killed"
-		r.logger.Debugf("in_tail: wait %s", err)
+		// err will be "signal: interrupt"
+		r.Debugf("end %s", err)
 	}
 	r.cmd = nil
-
-	r.logger.Infof("in_tail: close")
 	return nil
 }
