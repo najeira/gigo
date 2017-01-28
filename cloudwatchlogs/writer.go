@@ -16,8 +16,8 @@ const (
 	pluginName      = "cloudwatchlogs"
 	batchSize       = 768 * 1024
 	batchCount      = 10000
-	overheadRow     = 26
-	eventMaxSize    = 256 * 1024
+	rowOverhead     = 26
+	rowMaxSize      = 256 * 1024
 	defaultInterval = time.Second * 5
 )
 
@@ -26,7 +26,7 @@ var (
 	ErrSize   = errors.New("cloudwatchlogs: too long")
 )
 
-type Config struct {
+type WriterConfig struct {
 	Credentials *credentials.Credentials
 	Region      string
 	Group       string
@@ -39,24 +39,26 @@ type Config struct {
 type Writer struct {
 	gigo.Mixin
 
-	svc      service
+	svc      writerService
 	group    string
 	stream   string
 	sequence *string
 
-	interval time.Duration
-	eventCh  chan *cloudwatchlogs.InputLogEvent
-	events   eventsBuffer
-
-	closed chan struct{}
+	interval   time.Duration
+	eventCh    chan *cloudwatchlogs.InputLogEvent
+	events     []*cloudwatchlogs.InputLogEvent
+	size       int
+	batchSize  int
+	batchCount int
+	closed     chan struct{}
 }
 
-func NewWriter(config Config) *Writer {
+func NewWriter(config WriterConfig) *Writer {
 	if config.Interval <= 0 {
 		config.Interval = defaultInterval
 	}
 	w := &Writer{
-		svc:      newClient(config),
+		svc:      newClient(config.Region, config.Credentials),
 		group:    config.Group,
 		stream:   config.Stream,
 		sequence: nil,
@@ -65,14 +67,14 @@ func NewWriter(config Config) *Writer {
 		closed:   make(chan struct{}),
 	}
 	if config.BatchSize > 0 {
-		w.events.batchSize = config.BatchSize
+		w.batchSize = config.BatchSize
 	} else {
-		w.events.batchSize = batchSize
+		w.batchSize = batchSize
 	}
 	if config.BatchCount > 0 {
-		w.events.batchCount = config.BatchCount
+		w.batchCount = config.BatchCount
 	} else {
-		w.events.batchCount = batchCount
+		w.batchCount = batchCount
 	}
 	w.Name = pluginName
 	go w.run()
@@ -83,17 +85,14 @@ func (w *Writer) Write(msg string) error {
 	if w.eventCh == nil {
 		w.Info(ErrClosed)
 		return ErrClosed
-	} else if len(msg) > eventMaxSize {
+	} else if len(msg) > rowMaxSize {
 		return ErrSize
 	}
-
-	nowMilli := time.Now().UnixNano() / int64(time.Millisecond)
 	event := &cloudwatchlogs.InputLogEvent{
 		Message:   aws.String(msg),
-		Timestamp: aws.Int64(nowMilli),
+		Timestamp: aws.Int64(timeToMilli(time.Now())),
 	}
 	w.eventCh <- event
-
 	w.Debugf("write a row %d bytes", len(msg))
 	return nil
 }
@@ -113,10 +112,13 @@ func (w *Writer) run() {
 				return
 			}
 
-			if w.events.ready() {
+			if w.size >= w.batchSize {
+				w.flush()
+			} else if len(w.events) >= w.batchCount {
 				w.flush()
 			}
-			w.events.add(event)
+			w.events = append(w.events, event)
+			w.size += (len(aws.StringValue(event.Message)) + rowOverhead)
 		case <-ticker.C:
 			w.flush()
 		}
@@ -124,10 +126,14 @@ func (w *Writer) run() {
 }
 
 func (w *Writer) flush() error {
-	events, size := w.events.drain()
-	if len(events) <= 0 {
+	if len(w.events) <= 0 {
 		return nil
 	}
+
+	events := w.events[:]
+	size := w.size
+	w.events = nil
+	w.size = 0
 
 	resp, err := w.svc.PutLogEvents(&cloudwatchlogs.PutLogEventsInput{
 		LogEvents:     events,
@@ -137,9 +143,7 @@ func (w *Writer) flush() error {
 	})
 	if err != nil {
 		return err
-	}
-
-	if resp.RejectedLogEventsInfo != nil {
+	} else if resp.RejectedLogEventsInfo != nil {
 		return errors.New(resp.RejectedLogEventsInfo.GoString())
 	}
 
@@ -157,44 +161,15 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-func newClient(config Config) *cloudwatchlogs.CloudWatchLogs {
-	cfg := &aws.Config{Region: aws.String(config.Region)}
-	if config.Credentials != nil {
-		cfg.Credentials = config.Credentials
+func newClient(region string, credentials *credentials.Credentials) *cloudwatchlogs.CloudWatchLogs {
+	cfg := &aws.Config{Region: aws.String(region)}
+	if credentials != nil {
+		cfg.Credentials = credentials
 	}
 	sess := session.New(cfg)
 	return cloudwatchlogs.New(sess)
 }
 
-type eventsBuffer struct {
-	events     []*cloudwatchlogs.InputLogEvent
-	size       int
-	batchSize  int
-	batchCount int
-}
-
-func (w *eventsBuffer) add(e *cloudwatchlogs.InputLogEvent) {
-	w.events = append(w.events, e)
-	w.size += (len(aws.StringValue(e.Message)) + overheadRow)
-}
-
-func (w *eventsBuffer) drain() ([]*cloudwatchlogs.InputLogEvent, int) {
-	events := w.events[:]
-	size := w.size
-	w.events = nil
-	w.size = 0
-	return events, size
-}
-
-func (w *eventsBuffer) ready() bool {
-	if w.size >= w.batchSize {
-		return true
-	} else if len(w.events) >= w.batchCount {
-		return true
-	}
-	return false
-}
-
-type service interface {
+type writerService interface {
 	PutLogEvents(*cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error)
 }
