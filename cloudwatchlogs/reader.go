@@ -6,6 +6,8 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/service/cloudwatchlogs"
+
+	"github.com/najeira/gigo"
 )
 
 const (
@@ -24,6 +26,8 @@ type ReaderConfig struct {
 }
 
 type Reader struct {
+	gigo.Mixin
+
 	svc           readerService
 	group         *string
 	stream        *string
@@ -76,6 +80,7 @@ func (r *Reader) Read() (*cloudwatchlogs.OutputLogEvent, error) {
 func (r *Reader) pullEvents() error {
 	for {
 		if remain := r.nextPullTime.Sub(time.Now()); remain > 0 {
+			r.Debugf("sleep %s", remain.String())
 			time.Sleep(remain)
 		}
 		events, err := r.getEvents()
@@ -111,6 +116,7 @@ func (r *Reader) getEvents() ([]*cloudwatchlogs.OutputLogEvent, error) {
 		panic("nextForwardToken is nil")
 	}
 	r.nextToken = res.NextForwardToken
+	r.Infof("get %d events sequence %s", len(res.Events), aws.StringValue(res.NextForwardToken))
 	return res.Events, nil
 }
 
