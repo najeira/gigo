@@ -54,11 +54,17 @@ type Writer struct {
 }
 
 func NewWriter(config WriterConfig) *Writer {
+	w := newWriter(config)
+	w.svc = newClient(config.Region, config.Credentials)
+	go w.run()
+	return w
+}
+
+func newWriter(config WriterConfig) *Writer {
 	if config.Interval <= 0 {
 		config.Interval = defaultInterval
 	}
 	w := &Writer{
-		svc:      newClient(config.Region, config.Credentials),
 		group:    config.Group,
 		stream:   config.Stream,
 		sequence: nil,
@@ -77,12 +83,11 @@ func NewWriter(config WriterConfig) *Writer {
 		w.batchCount = batchCount
 	}
 	w.Name = pluginName
-	go w.run()
 	return w
 }
 
 func (w *Writer) Write(msg string) error {
-	if w.eventCh == nil {
+	if w.closed == nil {
 		w.Info(ErrClosed)
 		return ErrClosed
 	} else if len(msg) > rowMaxSize {
@@ -103,26 +108,36 @@ func (w *Writer) run() {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	eventCh := w.eventCh
 	for {
-		select {
-		case event, ok := <-eventCh:
-			if !ok {
-				w.flush() // flush remaining events
-				return
-			}
-
-			if w.size >= w.batchSize {
-				w.flush()
-			} else if len(w.events) >= w.batchCount {
-				w.flush()
-			}
-			w.events = append(w.events, event)
-			w.size += (len(aws.StringValue(event.Message)) + rowOverhead)
-		case <-ticker.C:
-			w.flush()
+		if done := w.pull(w.eventCh, ticker); done {
+			return
 		}
 	}
+	panic("fuga")
+}
+
+func (w *Writer) pull(eventCh <-chan *cloudwatchlogs.InputLogEvent, ticker *time.Ticker) bool {
+	select {
+	case event, ok := <-eventCh:
+		if !ok {
+			w.flush() // flush remaining events
+			return true
+		}
+		w.addEvent(event)
+	case <-ticker.C:
+		w.flush()
+	}
+	return false
+}
+
+func (w *Writer) addEvent(event *cloudwatchlogs.InputLogEvent) {
+	if w.size >= w.batchSize {
+		w.flush()
+	} else if len(w.events) >= w.batchCount {
+		w.flush()
+	}
+	w.events = append(w.events, event)
+	w.size += (len(aws.StringValue(event.Message)) + rowOverhead)
 }
 
 func (w *Writer) flush() error {
@@ -153,11 +168,15 @@ func (w *Writer) flush() error {
 }
 
 func (w *Writer) Close() error {
+	if w.closed == nil {
+		return ErrClosed
+	}
+
 	if w.eventCh != nil {
 		close(w.eventCh)
-		w.eventCh = nil
 	}
 	<-w.closed
+	w.closed = nil
 	return nil
 }
 
