@@ -51,15 +51,21 @@ type Writer struct {
 	closed chan struct{}
 }
 
-func NewWriter(config Config) *Writer {
+func NewWriter(config Config) (*Writer, error) {
+	svc := newClient(config)
+	sequence, err := createStreamIfNotExists(svc, config.Group, config.Stream)
+	if err != nil {
+		return nil, err
+	}
+
 	if config.Interval <= 0 {
 		config.Interval = defaultInterval
 	}
 	w := &Writer{
-		svc:      newClient(config),
+		svc:      svc,
 		group:    config.Group,
 		stream:   config.Stream,
-		sequence: nil,
+		sequence: sequence,
 		interval: config.Interval,
 		eventCh:  make(chan *cloudwatchlogs.InputLogEvent, 100),
 		closed:   make(chan struct{}),
@@ -76,7 +82,28 @@ func NewWriter(config Config) *Writer {
 	}
 	w.Name = pluginName
 	go w.run()
-	return w
+	return w, nil
+}
+
+func createStreamIfNotExists(client *cloudwatchlogs.CloudWatchLogs, group, stream string) (*string, error) {
+	streams, err := client.DescribeLogStreams(&cloudwatchlogs.DescribeLogStreamsInput{
+		LogGroupName: aws.String(group),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	for _, logStream := range streams.LogStreams {
+		if aws.StringValue(logStream.LogStreamName) == stream {
+			return logStream.UploadSequenceToken, nil
+		}
+	}
+
+	_, err = client.CreateLogStream(&cloudwatchlogs.CreateLogStreamInput{
+		LogGroupName:  aws.String(group),
+		LogStreamName: aws.String(stream),
+	})
+	return nil, err
 }
 
 func (w *Writer) Write(msg string) error {
@@ -109,6 +136,7 @@ func (w *Writer) run() {
 		select {
 		case event, ok := <-eventCh:
 			if !ok {
+				w.Debugf("closing")
 				w.flush() // flush remaining events
 				return
 			}
@@ -136,11 +164,15 @@ func (w *Writer) flush() error {
 		SequenceToken: w.sequence,
 	})
 	if err != nil {
+		w.Error(err)
+		w.events.add(events...)
 		return err
 	}
 
 	if resp.RejectedLogEventsInfo != nil {
-		return errors.New(resp.RejectedLogEventsInfo.GoString())
+		errstr := resp.RejectedLogEventsInfo.String()
+		w.Error(errstr)
+		return errors.New(errstr)
 	}
 
 	w.sequence = resp.NextSequenceToken
@@ -154,6 +186,7 @@ func (w *Writer) Close() error {
 		w.eventCh = nil
 	}
 	<-w.closed
+	w.Debugf("closed")
 	return nil
 }
 
@@ -173,9 +206,11 @@ type eventsBuffer struct {
 	batchCount int
 }
 
-func (w *eventsBuffer) add(e *cloudwatchlogs.InputLogEvent) {
-	w.events = append(w.events, e)
-	w.size += (len(aws.StringValue(e.Message)) + overheadRow)
+func (w *eventsBuffer) add(events ...*cloudwatchlogs.InputLogEvent) {
+	for _, event := range events {
+		w.events = append(w.events, event)
+		w.size += (len(aws.StringValue(event.Message)) + overheadRow)
+	}
 }
 
 func (w *eventsBuffer) drain() ([]*cloudwatchlogs.InputLogEvent, int) {
