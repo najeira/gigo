@@ -16,8 +16,8 @@ const (
 	pluginName      = "cloudwatchlogs"
 	batchSize       = 768 * 1024
 	batchCount      = 10000
-	overheadRow     = 26
-	eventMaxSize    = 256 * 1024
+	rowOverhead     = 26
+	rowMaxSize      = 256 * 1024
 	defaultInterval = time.Second * 5
 )
 
@@ -26,7 +26,7 @@ var (
 	ErrSize   = errors.New("cloudwatchlogs: too long")
 )
 
-type Config struct {
+type WriterConfig struct {
 	Credentials *credentials.Credentials
 	Region      string
 	Group       string
@@ -39,50 +39,56 @@ type Config struct {
 type Writer struct {
 	gigo.Mixin
 
-	svc      service
+	svc      writerService
 	group    string
 	stream   string
 	sequence *string
 
-	interval time.Duration
-	eventCh  chan *cloudwatchlogs.InputLogEvent
-	events   eventsBuffer
-
-	closed chan struct{}
+	interval   time.Duration
+	eventCh    chan *cloudwatchlogs.InputLogEvent
+	events     []*cloudwatchlogs.InputLogEvent
+	size       int
+	batchSize  int
+	batchCount int
+	closed     chan struct{}
 }
 
-func NewWriter(config Config) (*Writer, error) {
-	svc := newClient(config)
+func NewWriter(config WriterConfig) (*Writer, error) {
+	svc := newClient(config.Region, config.Credentials)
 	sequence, err := createStreamIfNotExists(svc, config.Group, config.Stream)
 	if err != nil {
 		return nil, err
 	}
+	w := newWriter(config)
+	w.svc = svc
+	w.sequence = sequence
+	go w.run()
+	return w, nil
+}
 
+func newWriter(config WriterConfig) *Writer {
 	if config.Interval <= 0 {
 		config.Interval = defaultInterval
 	}
 	w := &Writer{
-		svc:      svc,
 		group:    config.Group,
 		stream:   config.Stream,
-		sequence: sequence,
 		interval: config.Interval,
 		eventCh:  make(chan *cloudwatchlogs.InputLogEvent, 100),
 		closed:   make(chan struct{}),
 	}
 	if config.BatchSize > 0 {
-		w.events.batchSize = config.BatchSize
+		w.batchSize = config.BatchSize
 	} else {
-		w.events.batchSize = batchSize
+		w.batchSize = batchSize
 	}
 	if config.BatchCount > 0 {
-		w.events.batchCount = config.BatchCount
+		w.batchCount = config.BatchCount
 	} else {
-		w.events.batchCount = batchCount
+		w.batchCount = batchCount
 	}
 	w.Name = pluginName
-	go w.run()
-	return w, nil
+	return w
 }
 
 func createStreamIfNotExists(client *cloudwatchlogs.CloudWatchLogs, group, stream string) (*string, error) {
@@ -107,20 +113,17 @@ func createStreamIfNotExists(client *cloudwatchlogs.CloudWatchLogs, group, strea
 }
 
 func (w *Writer) Write(msg string) error {
-	if w.eventCh == nil {
+	if w.closed == nil {
 		w.Info(ErrClosed)
 		return ErrClosed
-	} else if len(msg) > eventMaxSize {
+	} else if len(msg) > rowMaxSize {
 		return ErrSize
 	}
-
-	nowMilli := time.Now().UnixNano() / int64(time.Millisecond)
 	event := &cloudwatchlogs.InputLogEvent{
 		Message:   aws.String(msg),
-		Timestamp: aws.Int64(nowMilli),
+		Timestamp: aws.Int64(timeToMilli(time.Now())),
 	}
 	w.eventCh <- event
-
 	w.Debugf("write a row %d bytes", len(msg))
 	return nil
 }
@@ -131,31 +134,47 @@ func (w *Writer) run() {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
 
-	eventCh := w.eventCh
 	for {
-		select {
-		case event, ok := <-eventCh:
-			if !ok {
-				w.Debugf("closing")
-				w.flush() // flush remaining events
-				return
-			}
-
-			if w.events.ready() {
-				w.flush()
-			}
-			w.events.add(event)
-		case <-ticker.C:
-			w.flush()
+		if done := w.pull(w.eventCh, ticker); done {
+			return
 		}
 	}
+	panic("fuga")
+}
+
+func (w *Writer) pull(eventCh <-chan *cloudwatchlogs.InputLogEvent, ticker *time.Ticker) bool {
+	select {
+	case event, ok := <-eventCh:
+		if !ok {
+			w.flush() // flush remaining events
+			return true
+		}
+		w.addEvent(event)
+	case <-ticker.C:
+		w.flush()
+	}
+	return false
+}
+
+func (w *Writer) addEvent(event *cloudwatchlogs.InputLogEvent) {
+	if w.size >= w.batchSize {
+		w.flush()
+	} else if len(w.events) >= w.batchCount {
+		w.flush()
+	}
+	w.events = append(w.events, event)
+	w.size += (len(aws.StringValue(event.Message)) + rowOverhead)
 }
 
 func (w *Writer) flush() error {
-	events, size := w.events.drain()
-	if len(events) <= 0 {
+	if len(w.events) <= 0 {
 		return nil
 	}
+
+	events := w.events[:]
+	size := w.size
+	w.events = nil
+	w.size = 0
 
 	resp, err := w.svc.PutLogEvents(&cloudwatchlogs.PutLogEventsInput{
 		LogEvents:     events,
@@ -165,11 +184,9 @@ func (w *Writer) flush() error {
 	})
 	if err != nil {
 		w.Error(err)
-		w.events.add(events...)
+		//w.events.add(events...)
 		return err
-	}
-
-	if resp.RejectedLogEventsInfo != nil {
+	} else if resp.RejectedLogEventsInfo != nil {
 		errstr := resp.RejectedLogEventsInfo.String()
 		w.Error(errstr)
 		return errors.New(errstr)
@@ -181,55 +198,27 @@ func (w *Writer) flush() error {
 }
 
 func (w *Writer) Close() error {
+	if w.closed == nil {
+		return ErrClosed
+	}
+
 	if w.eventCh != nil {
 		close(w.eventCh)
-		w.eventCh = nil
 	}
 	<-w.closed
-	w.Debugf("closed")
+	w.closed = nil
 	return nil
 }
 
-func newClient(config Config) *cloudwatchlogs.CloudWatchLogs {
-	cfg := &aws.Config{Region: aws.String(config.Region)}
-	if config.Credentials != nil {
-		cfg.Credentials = config.Credentials
+func newClient(region string, credentials *credentials.Credentials) *cloudwatchlogs.CloudWatchLogs {
+	cfg := &aws.Config{Region: aws.String(region)}
+	if credentials != nil {
+		cfg.Credentials = credentials
 	}
 	sess := session.New(cfg)
 	return cloudwatchlogs.New(sess)
 }
 
-type eventsBuffer struct {
-	events     []*cloudwatchlogs.InputLogEvent
-	size       int
-	batchSize  int
-	batchCount int
-}
-
-func (w *eventsBuffer) add(events ...*cloudwatchlogs.InputLogEvent) {
-	for _, event := range events {
-		w.events = append(w.events, event)
-		w.size += (len(aws.StringValue(event.Message)) + overheadRow)
-	}
-}
-
-func (w *eventsBuffer) drain() ([]*cloudwatchlogs.InputLogEvent, int) {
-	events := w.events[:]
-	size := w.size
-	w.events = nil
-	w.size = 0
-	return events, size
-}
-
-func (w *eventsBuffer) ready() bool {
-	if w.size >= w.batchSize {
-		return true
-	} else if len(w.events) >= w.batchCount {
-		return true
-	}
-	return false
-}
-
-type service interface {
+type writerService interface {
 	PutLogEvents(*cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error)
 }
