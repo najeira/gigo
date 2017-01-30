@@ -36,8 +36,8 @@ type inTailOutS3 struct {
 func newInTailOutS3(config Config, logger *logger) *inTailOutS3 {
 	p := inTailOutS3{config: config}
 	p.Name = commandName
-	p.LogLevel = gigo.ParseLogLevel(config.LogLevel)
-	p.Logger = logger
+	p.logLevel = gigo.parseLogLevel(config.LogLevel)
+	p.logger = logger
 	return &p
 }
 
@@ -45,8 +45,8 @@ func (p *inTailOutS3) initInput() error {
 	input := in_tail.New(in_tail.Config{
 		File: p.config.File,
 	})
-	input.LogLevel = gigo.ParseLogLevel(p.config.LogLevelTail)
-	input.Logger = p.Logger
+	input.logLevel = gigo.parseLogLevel(p.config.LogLevelTail)
+	input.logger = p.logger
 	if err := input.Open(); err != nil {
 		return err
 	}
@@ -71,8 +71,8 @@ func (p *inTailOutS3) initOutput() error {
 	if err != nil {
 		return err
 	}
-	output.LogLevel = gigo.ParseLogLevel(p.config.LogLevelS3)
-	output.Logger = p.Logger
+	output.logLevel = gigo.parseLogLevel(p.config.LogLevelS3)
+	output.logger = p.logger
 	p.output = output
 	return nil
 }

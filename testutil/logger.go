@@ -3,39 +3,30 @@ package testutil
 import (
 	"bytes"
 	"fmt"
-	"log"
+
+	"github.com/najeira/gigo"
 )
 
-type Logger struct {
-	Trace bytes.Buffer
-	Debug bytes.Buffer
-	Info  bytes.Buffer
-	Warn  bytes.Buffer
-	Error bytes.Buffer
+type EventLogger struct {
+	buf bytes.Buffer
 }
 
-func myPrintf(buf bytes.Buffer, format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.Println(s)
-	buf.WriteString(s + "\n")
+var _ gigo.Eventer = (*EventLogger)(nil)
+
+func (e *EventLogger) Emit(tag string, level int, message string) {
+	if name := levelName(level); len(name) > 0 {
+		fmt.Fprintf("[%s] %s: %s\n", name, tag, message)
+	}
 }
 
-func (l *Logger) Tracef(format string, args ...interface{}) {
-	myPrintf(l.Trace, format, args...)
-}
-
-func (l *Logger) Debugf(format string, args ...interface{}) {
-	myPrintf(l.Debug, format, args...)
-}
-
-func (l *Logger) Infof(format string, args ...interface{}) {
-	myPrintf(l.Info, format, args...)
-}
-
-func (l *Logger) Warnf(format string, args ...interface{}) {
-	myPrintf(l.Warn, format, args...)
-}
-
-func (l *Logger) Errorf(format string, args ...interface{}) {
-	myPrintf(l.Error, format, args...)
+func levelName(level int) string {
+	switch level {
+	case gigo.Debug:
+		return "debug"
+	case gigo.Info:
+		return "info"
+	case gigo.Err:
+		return "error"
+	}
+	return ""
 }

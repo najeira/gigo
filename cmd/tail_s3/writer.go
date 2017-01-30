@@ -154,8 +154,8 @@ func (w *Writer) rotateImpl(next bool) {
 		PublicRead:        w.config.PublicRead,
 		ReducedRedundancy: w.config.ReducedRedundancy,
 	})
-	w.Logger = w.Logger
-	w.LogLevel = w.LogLevel
+	output.logLevel = w.logLevel
+	output.logger = w.logger
 	w.writer = output
 	w.Debugf("new writer %s", fileKey)
 }

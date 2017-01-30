@@ -3,7 +3,8 @@ package main
 import (
 	"errors"
 
-	"github.com/najeira/toml"
+	"github.com/najeira/conv"
+	"github.com/pelletier/go-toml"
 )
 
 type Config struct {
@@ -36,26 +37,26 @@ func LoadConfig(file string) (*Config, error) {
 		return nil, err
 	}
 	config := &Config{}
-	config.LogLevel = rootTree.GetString("log_level", "error")
+	config.LogLevel = conv.String(rootTree.Get("log_level"), "error")
 
-	tailTree := rootTree.GetTree("tail")
-	config.LogLevelTail = tailTree.GetString("log_level", config.LogLevel)
-	config.File = tailTree.GetString("file", "")
-	config.Tail = tailTree.GetString("tail", "")
+	tailTree := rootTree.Get("tail").(*toml.TomlTree)
+	config.LogLevelTail = conv.String(tailTree.Get("log_level"), config.LogLevel)
+	config.File = conv.String(tailTree.Get("file"), "")
+	config.Tail = conv.String(tailTree.Get("tail"), "")
 
-	s3Tree := rootTree.GetTree("s3")
-	config.LogLevelS3 = s3Tree.GetString("log_level", config.LogLevel)
-	config.Key = s3Tree.GetString("key", "")
-	config.Secret = s3Tree.GetString("secret", "")
-	config.Region = s3Tree.GetString("region", "")
-	config.Bucket = s3Tree.GetString("bucket", "")
-	config.Path = s3Tree.GetString("path", "")
-	config.Hostname = s3Tree.GetBool("hostname", false)
-	config.PublicRead = s3Tree.GetBool("public_read", false)
-	config.ReducedRedundancy = s3Tree.GetBool("reduced_redundancy", false)
-	config.TimeFormat = s3Tree.GetString("time_format", DefaultTimeFormat)
-	config.BufferSize = int(s3Tree.GetInt("buffer_size", DefaultBufferSize))
-	config.FlushInterval = s3Tree.GetInt("flush_interval", DefaultFlushInterval)
+	s3Tree := rootTree.Get("s3").(*toml.TomlTree)
+	config.LogLevelS3 = conv.String(s3Tree.Get("log_level"), config.LogLevel)
+	config.Key = conv.String(s3Tree.Get("key"), "")
+	config.Secret = conv.String(s3Tree.Get("secret"), "")
+	config.Region = conv.String(s3Tree.Get("region"), "")
+	config.Bucket = conv.String(s3Tree.Get("bucket"), "")
+	config.Path = conv.String(s3Tree.Get("path"), "")
+	config.Hostname = conv.Bool(s3Tree.Get("hostname"), false)
+	config.PublicRead = conv.Bool(s3Tree.Get("public_read"), false)
+	config.ReducedRedundancy = conv.Bool(s3Tree.Get("reduced_redundancy"), false)
+	config.TimeFormat = conv.String(s3Tree.Get("time_format"), DefaultTimeFormat)
+	config.BufferSize = int(conv.Int(s3Tree.Get("buffer_size"), DefaultBufferSize))
+	config.FlushInterval = conv.Int(s3Tree.Get("flush_interval"), DefaultFlushInterval)
 
 	if config.File == "" {
 		return nil, errors.New("file is not configured")
