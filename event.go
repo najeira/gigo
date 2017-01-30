@@ -6,98 +6,104 @@ import (
 )
 
 const (
-	LogError LogLevel = iota
-	LogInfo
-	LogDebug
-	LogNo
+	logError logLevel = iota
+	logInfo
+	logDebug
+	logNo
 )
 
-type LogLevel uint8
+type logLevel uint8
 
-func (lvl LogLevel) String() string {
+func (lvl logLevel) String() string {
 	switch lvl {
-	case LogDebug:
+	case logDebug:
 		return "debug"
-	case LogInfo:
+	case logInfo:
 		return "info"
-	case LogError:
+	case logError:
 		return "error"
 	}
 	return ""
 }
 
-func ParseLogLevel(level string) LogLevel {
+func parseLogLevel(level string) logLevel {
 	if len(level) > 0 {
 		c := []rune(strings.ToLower(level))[0]
 		switch c {
 		case 'e':
-			return LogError
+			return logError
+		case 'w': // warning to error
+			return logError
 		case 'i':
-			return LogInfo
+			return logInfo
 		case 'd':
-			return LogDebug
-		case 'n':
-			return LogNo
+			return logDebug
+		case 't': // trace to debug
+			return logDebug
 		}
 	}
-	return LogNo
+	return logNo
 }
 
-type Logger interface {
-	Print(message string)
-}
+type Logger func(calldepth int, s string) error
 
 type Mixin struct {
-	Logger
-	Name     string
-	LogLevel LogLevel
+	Name string
+
+	logger   Logger
+	logLevel logLevel
+}
+
+func (m *Mixin) SetLogging(fn Logger, lvl string) {
+	m.logger = fn
+	m.logLevel = parseLogLevel(lvl)
 }
 
 func (m *Mixin) Debug(args ...interface{}) {
-	m.output(LogDebug, args...)
+	m.output(logDebug, args...)
 }
 
 func (m *Mixin) Debugf(format string, args ...interface{}) {
-	m.outputf(LogDebug, format, args...)
+	m.outputf(logDebug, format, args...)
 }
 
 func (m *Mixin) Info(args ...interface{}) {
-	m.output(LogInfo, args...)
+	m.output(logInfo, args...)
 }
 
 func (m *Mixin) Infof(format string, args ...interface{}) {
-	m.outputf(LogInfo, format, args...)
+	m.outputf(logInfo, format, args...)
 }
 
 func (m *Mixin) Error(args ...interface{}) {
-	m.output(LogError, args...)
+	m.output(logError, args...)
 }
 
 func (m *Mixin) Errorf(format string, args ...interface{}) {
-	m.outputf(LogError, format, args...)
+	m.outputf(logError, format, args...)
 }
 
-func (m *Mixin) output(level LogLevel, args ...interface{}) {
+func (m *Mixin) output(level logLevel, args ...interface{}) {
 	if name := m.logLevelName(level); len(name) > 0 {
 		m.printToLogger(name, fmt.Sprint(args...))
 	}
 }
 
-func (m *Mixin) outputf(level LogLevel, format string, args ...interface{}) {
+func (m *Mixin) outputf(level logLevel, format string, args ...interface{}) {
 	if name := m.logLevelName(level); len(name) > 0 {
 		m.printToLogger(name, fmt.Sprintf(format, args...))
 	}
 }
 
-func (m *Mixin) logLevelName(level LogLevel) string {
-	if m.Logger == nil {
+func (m *Mixin) logLevelName(level logLevel) string {
+	if m.logger == nil {
 		return ""
-	} else if m.LogLevel < level {
+	} else if m.logLevel < level {
 		return ""
 	}
 	return level.String()
 }
 
 func (m *Mixin) printToLogger(name string, msg string) {
-	m.Logger.Print(fmt.Sprintf("[%s] %s: %s", name, m.Name, msg))
+	m.logger(5, fmt.Sprintf("[%s] %s: %s", name, m.Name, msg))
 }
