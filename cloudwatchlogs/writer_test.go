@@ -39,7 +39,7 @@ func TestWriterWriteFlush(t *testing.T) {
 	if err := w.Write(msg); err != nil {
 		t.Error(err)
 	}
-	if done := w.pull(w.eventCh, time.NewTicker(time.Hour)); done {
+	if done := w.pull(w.eventCh, time.NewTimer(time.Hour)); done {
 		t.Fail()
 	}
 	if len(w.events) != 1 {

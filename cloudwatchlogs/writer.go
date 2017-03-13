@@ -130,40 +130,48 @@ func (w *Writer) Write(msg string) error {
 
 func (w *Writer) run() {
 	defer close(w.closed)
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
+	timer := time.NewTimer(w.interval)
 	for {
-		if done := w.pull(w.eventCh, ticker); done {
+		if done := w.pull(w.eventCh, timer); done {
 			return
 		}
 	}
 	panic("fuga")
 }
 
-func (w *Writer) pull(eventCh <-chan *cloudwatchlogs.InputLogEvent, ticker *time.Ticker) bool {
+func (w *Writer) pull(eventCh <-chan *cloudwatchlogs.InputLogEvent, timer *time.Timer) bool {
 	select {
 	case event, ok := <-eventCh:
 		if !ok {
 			w.flush() // flush remaining events
 			return true
 		}
-		w.addEvent(event)
-	case <-ticker.C:
+		if flushed := w.addEvent(event); flushed {
+			// reset the timer
+			if !timer.Stop() {
+				<-timer.C
+			}
+			timer.Reset(w.interval)
+		}
+	case <-timer.C:
 		w.flush()
+		timer.Reset(w.interval)
 	}
 	return false
 }
 
-func (w *Writer) addEvent(event *cloudwatchlogs.InputLogEvent) {
+func (w *Writer) addEvent(event *cloudwatchlogs.InputLogEvent) bool {
+	flushed := false
 	if w.size >= w.batchSize {
 		w.flush()
+		flushed = true
 	} else if len(w.events) >= w.batchCount {
 		w.flush()
+		flushed = true
 	}
 	w.events = append(w.events, event)
 	w.size += (len(aws.StringValue(event.Message)) + rowOverhead)
+	return flushed
 }
 
 func (w *Writer) flush() error {
