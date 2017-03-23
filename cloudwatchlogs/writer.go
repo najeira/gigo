@@ -2,6 +2,7 @@ package cloudwatchlogs
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -192,7 +193,12 @@ func (w *Writer) flush() error {
 	})
 	if err != nil {
 		w.Error(err)
-		//w.events.add(events...)
+		if sequenceToken := getNextSequenceTokenFromError(err); len(sequenceToken) > 0 {
+			w.events = append(w.events, events...)
+			w.size = size
+			w.sequence = &sequenceToken
+			w.Infof("retry %d events %d bytes with sequence %s", len(events), size, sequenceToken)
+		}
 		return err
 	} else if resp.RejectedLogEventsInfo != nil {
 		errstr := resp.RejectedLogEventsInfo.String()
@@ -229,4 +235,22 @@ func newClient(region string, credentials *credentials.Credentials) *cloudwatchl
 
 type writerService interface {
 	PutLogEvents(*cloudwatchlogs.PutLogEventsInput) (*cloudwatchlogs.PutLogEventsOutput, error)
+}
+
+func getNextSequenceTokenFromError(err error) string {
+	lines := strings.Split(err.Error(), "\n")
+	if len(lines) <= 0 {
+		return ""
+	}
+
+	targetLine := lines[0]
+	if !strings.Contains(targetLine, "InvalidSequenceTokenException") {
+		return ""
+	}
+
+	parts := strings.Split(targetLine, "The next expected sequenceToken is: ")
+	if len(parts) <= 1 {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
 }
